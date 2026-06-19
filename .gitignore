@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# ChromaDB (auto-generated)
+chroma_db/
+
+# Uploads (user data)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
