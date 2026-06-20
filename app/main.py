@@ -6,13 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.upload import router as upload_router
 from app.api.query import router as query_router
 from app.api.ask import router as ask_router
+from app.api.documents import router as documents_router
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-app = FastAPI(title="RAG Application - Phase 3", version="3.0.0")
+app = FastAPI(title="RAG Application - Phase 4", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,3 +26,4 @@ app.add_middleware(
 app.include_router(upload_router)
 app.include_router(query_router)
 app.include_router(ask_router)
+app.include_router(documents_router)
