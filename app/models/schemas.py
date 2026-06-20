@@ -33,11 +33,18 @@ class SourceCitation(BaseModel):
     chunk_id: str
 
 
+class RetrievalStats(BaseModel):
+    vector_candidates: int
+    bm25_candidates: int
+    reranked_chunks: int
+
+
 class AskResponse(BaseModel):
     question: str
     answer: str
     sources_used: int
     sources: list[SourceCitation]
+    retrieval_stats: RetrievalStats | None = None
 
 
 class DocumentInfo(BaseModel):

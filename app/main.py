@@ -13,7 +13,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-app = FastAPI(title="RAG Application - Phase 4", version="4.0.0")
+app = FastAPI(title="RAG Application - Phase 5", version="5.0.0")
 
 app.add_middleware(
     CORSMiddleware,

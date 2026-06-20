@@ -26,6 +26,8 @@ def store_chunks(
     embeddings: list[list[float]],
     source_filename: str,
 ) -> int:
+    from app.services.bm25_service import mark_dirty
+
     collection = get_chroma_collection()
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -46,6 +48,8 @@ def store_chunks(
         metadatas=metadatas,
     )
 
+    mark_dirty()
+
     logger.info(
         "Inserted %d chunks into Chroma (source: %s)", len(chunks), source_filename
     )
@@ -53,6 +57,8 @@ def store_chunks(
 
 
 def delete_document_chunks(filename: str) -> int:
+    from app.services.bm25_service import mark_dirty
+
     collection = get_chroma_collection()
     results = collection.get(where={"filename": filename})
     ids = results.get("ids", [])
@@ -61,6 +67,7 @@ def delete_document_chunks(filename: str) -> int:
         return 0
 
     collection.delete(ids=ids)
+    mark_dirty()
     logger.info("Deleted %d chunks for document: %s", len(ids), filename)
     return len(ids)
 

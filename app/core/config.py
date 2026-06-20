@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "meta-llama/Llama-3.1-8B-Instruct"
     LLM_TIMEOUT: int = 60
     UPLOAD_DIR: str = "./uploads"
+    VECTOR_TOP_K: int = 10
+    BM25_TOP_K: int = 10
+    RERANK_TOP_K: int = 5
 
     class Config:
         env_file = ".env"

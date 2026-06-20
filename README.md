@@ -1,6 +1,6 @@
-# RAG Application - Phase 4
+# RAG Application - Phase 5
 
-PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB → Semantic Retrieval → Answer Generation
+PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB + BM25 → Hybrid Retrieval → Cross-Encoder Reranking → Answer Generation
 
 ## Tech Stack
 
@@ -11,6 +11,8 @@ PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB → Seman
 - PyPDF
 - Hugging Face Inference API (Meta Llama)
 - Pydantic Settings
+- BM25 (rank-bm25)
+- Cross-Encoder Reranking (ms-marco-MiniLM-L-6-v2)
 
 ## Setup
 
@@ -30,8 +32,11 @@ cp .env.example .env
 | ------------------- | ---------------------------------------------- | ------------------------------------- |
 | `CHROMA_PATH`       | `./chroma_db`                                   | ChromaDB storage path                 |
 | `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2`        | Embedding model name                  |
-| `TOP_K_RESULTS`     | `5`                                             | Number of chunks to retrieve          |
+| `TOP_K_RESULTS`     | `5`                                             | Number of chunks to retrieve (legacy) |
 | `MAX_CONTEXT_CHARS` | `3000`                                          | Max context characters sent to LLM    |
+| `VECTOR_TOP_K`      | `10`                                            | Top candidates from dense vector search |
+| `BM25_TOP_K`        | `10`                                            | Top candidates from BM25 sparse search |
+| `RERANK_TOP_K`      | `5`                                             | Final top chunks after cross-encoder reranking |
 | `HF_API_KEY`        | —                                              | **Required.** Hugging Face API token  |
 | `LLM_MODEL`         | `meta-llama/Llama-3.1-8B-Instruct`             | Hugging Face model ID                 |
 | `LLM_TIMEOUT`       | `60`                                            | LLM API timeout in seconds            |
@@ -54,14 +59,22 @@ Server starts at `http://localhost:8000`.
 
 ```
 Question
-    ↓ (embedding)
-Retrieve Top Chunks from ChromaDB
-    ↓ (deduplicate, build context, truncate if needed)
-Context + Question → Prompt
-    ↓ (Hugging Face Inference API)
-Meta Llama generates answer
-    ↓
-Answer + Source Citations
+    ├──→ Dense Retrieval (ChromaDB) — Top 10
+    └──→ Sparse Retrieval (BM25) — Top 10
+              ↓
+         Merge Candidates
+              ↓
+         Remove Duplicates
+              ↓
+    Cross-Encoder Reranker — Top 5
+              ↓
+    Context Optimization (near-duplicate removal, truncation)
+              ↓
+    Context + Question → Prompt
+              ↓ (Hugging Face Inference API)
+    Meta Llama generates answer
+              ↓
+    Answer + Source Citations + Retrieval Stats
 ```
 
 ## API
@@ -119,7 +132,12 @@ curl -X POST http://localhost:8000/ask \
       "filename": "document.pdf",
       "chunk_id": "12"
     }
-  ]
+  ],
+  "retrieval_stats": {
+    "vector_candidates": 10,
+    "bm25_candidates": 8,
+    "reranked_chunks": 5
+  }
 }
 ```
 
@@ -141,6 +159,11 @@ curl -X POST http://localhost:8000/ask/stream \
     {"filename": "document.pdf", "chunk_id": "5"},
     {"filename": "document.pdf", "chunk_id": "12"}
   ],
+  "retrieval_stats": {
+    "vector_candidates": 10,
+    "bm25_candidates": 8,
+    "reranked_chunks": 5
+  },
   "tokens": ["The", " document", " discusses", " ..."]
 }
 ```
@@ -152,7 +175,12 @@ If no relevant content is found in any endpoint:
   "question": "...",
   "answer": "I could not find the answer in the provided document.",
   "sources_used": 0,
-  "sources": []
+  "sources": [],
+  "retrieval_stats": {
+    "vector_candidates": 10,
+    "bm25_candidates": 0,
+    "reranked_chunks": 0
+  }
 }
 ```
 
@@ -204,6 +232,45 @@ curl -X DELETE http://localhost:8000/documents/manual.pdf
 
 ## Features
 
+### Hybrid Retrieval (Dense + Sparse)
+
+Retrieval combines two complementary approaches:
+
+- **Dense Retrieval (ChromaDB):** Semantic vector search using sentence-transformers embeddings. Captures meaning and conceptual similarity.
+- **Sparse Retrieval (BM25):** Keyword-based lexical search using the `rank-bm25` library. Excels at exact term matching and rare word recall.
+
+Both retrieval paths run in parallel. Candidates are merged, deduplicated by content, and sent to the reranker.
+
+### Cross-Encoder Reranking
+
+After hybrid retrieval, a **Cross-Encoder** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) scores each candidate pair `(question, chunk)` and returns a relevance score. The top `RERANK_TOP_K` chunks are passed to the LLM. This significantly improves precision compared to relying on embedding similarity alone.
+
+### Context Optimization
+
+Before building the final prompt:
+
+1. **Exact deduplication** — identical chunks from either retrieval path are merged
+2. **Near-duplicate removal** — chunks with >80% Jaccard token overlap are filtered out
+3. **Context truncation** — oversized contexts are trimmed to `MAX_CONTEXT_CHARS`
+
+### Retrieval Performance Monitoring
+
+Every `/ask` response includes optional `retrieval_stats` metadata:
+
+```json
+"retrieval_stats": {
+  "vector_candidates": 10,
+  "bm25_candidates": 8,
+  "reranked_chunks": 5
+}
+```
+
+The following timings are also logged server-side for each request:
+- Vector search time
+- BM25 search time
+- Reranking time
+- Total retrieval time
+
 ### Multi-Document Support
 
 Multiple PDFs coexist in the same ChromaDB collection. Each chunk is tagged with its originating `filename`, `chunk_index`, and `uploaded_at` timestamp. Retrieval returns chunks from all documents, and the answer cites which document each chunk came from.
@@ -214,18 +281,19 @@ Every `/ask` response includes a `sources` array with `filename` and `chunk_id` 
 
 ### Streaming Responses
 
-`POST /ask/stream` returns tokens one at a time as a JSON array, preceded by the source citations. The response uses `Transfer-Encoding: chunked` so the client can render tokens incrementally.
+`POST /ask/stream` returns tokens one at a time as a JSON array, preceded by the source citations and retrieval stats. The response uses `Transfer-Encoding: chunked` so the client can render tokens incrementally.
 
 ### Document Management
 
 - `GET /documents` — list all uploaded documents and their chunk counts
 - `DELETE /documents/{filename}` — remove a document and all its chunks
 
-### Retrieval Improvements
+### BM25 Index Synchronization
 
-- **Deduplication:** identical chunk content is skipped during retrieval
-- **Configurable:** `TOP_K_RESULTS` and `MAX_CONTEXT_CHARS` via environment variables
-- **Context truncation:** oversized contexts are trimmed before being sent to the LLM
+The BM25 index is built automatically from ChromaDB on first query. It is kept synchronized:
+
+- **On upload:** new chunks are added to ChromaDB, and the BM25 index is marked dirty (rebuilds on next query)
+- **On delete:** chunks are removed from ChromaDB, and the BM25 index is marked dirty
 
 ## Project Structure
 
@@ -242,6 +310,9 @@ rag_app/
 │   │   ├── chunking_service.py
 │   │   ├── embedding_service.py
 │   │   ├── vector_store_service.py
+│   │   ├── bm25_service.py              # BM25 sparse retrieval
+│   │   ├── hybrid_retrieval_service.py   # Dense + sparse + rerank pipeline
+│   │   ├── reranker_service.py           # Cross-encoder reranking
 │   │   ├── retrieval_service.py
 │   │   ├── llm_service.py
 │   │   └── rag_service.py
