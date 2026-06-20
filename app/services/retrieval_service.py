@@ -28,13 +28,20 @@ def retrieve_chunks(question: str) -> list[dict]:
 
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
+    ids = results["ids"][0]
 
-    for doc, meta in zip(documents, metadatas):
+    seen_content: set[str] = set()
+    for doc, meta, doc_id in zip(documents, metadatas, ids):
+        if doc in seen_content:
+            logger.debug("Skipping duplicate chunk: %s", doc[:50])
+            continue
+        seen_content.add(doc)
+
         chunks.append({
-            "chunk_id": str(meta.get("chunk_id", "")),
-            "source": meta.get("source", ""),
+            "chunk_id": doc_id,
+            "source": meta.get("filename", ""),
             "content": doc,
         })
 
-    logger.info("Retrieved %d chunks for query: %s", len(chunks), question)
+    logger.info("Retrieved %d unique chunks for query: %s", len(chunks), question)
     return chunks
