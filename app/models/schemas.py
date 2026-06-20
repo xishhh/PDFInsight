@@ -28,7 +28,34 @@ class AskRequest(BaseModel):
     question: str
 
 
+class SourceCitation(BaseModel):
+    filename: str
+    chunk_id: str
+
+
 class AskResponse(BaseModel):
     question: str
     answer: str
     sources_used: int
+    sources: list[SourceCitation]
+
+
+class DocumentInfo(BaseModel):
+    filename: str
+    chunks: int
+    uploaded_at: str | None = None
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentInfo]
+    total: int
+
+
+class DeleteResponse(BaseModel):
+    status: str
+    filename: str
+    chunks_deleted: int
+
+
+class StreamChunk(BaseModel):
+    token: str

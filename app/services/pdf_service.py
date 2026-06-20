@@ -1,17 +1,20 @@
 import logging
 from pathlib import Path
-from fastapi import UploadFile
 
 from PyPDF2 import PdfReader
 
 logger = logging.getLogger(__name__)
 
 
-async def save_uploaded_file(upload_dir: Path, file: UploadFile) -> Path:
-    file_path = upload_dir / file.filename
-    content = await file.read()
+def _safe_filename(filename: str) -> str:
+    return Path(filename).name
+
+
+def save_uploaded_file(upload_dir: Path, filename: str, content: bytes) -> Path:
+    safe_name = _safe_filename(filename)
+    file_path = upload_dir / safe_name
     file_path.write_bytes(content)
-    logger.info("Saved uploaded file: %s (%d bytes)", file.filename, len(content))
+    logger.info("Saved uploaded file: %s (%d bytes)", safe_name, len(content))
     return file_path
 
 
