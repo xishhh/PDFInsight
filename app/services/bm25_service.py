@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 
 from rank_bm25 import BM25Okapi
 
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 _bm25: BM25Okapi | None = None
 _corpus: list[dict] = []
 _is_dirty: bool = True
+_lock = threading.Lock()
 
 
 def _tokenize(text: str) -> list[str]:
@@ -18,33 +20,37 @@ def _tokenize(text: str) -> list[str]:
 
 def _rebuild_index() -> None:
     global _bm25, _corpus, _is_dirty
-    logger.info("Rebuilding BM25 index from ChromaDB...")
+    with _lock:
+        if not _is_dirty and _bm25 is not None:
+            return
+        logger.info("Rebuilding BM25 index from ChromaDB...")
 
-    collection = get_chroma_collection()
-    all_data = collection.get(include=["documents", "metadatas"])
+        collection = get_chroma_collection()
+        all_data = collection.get(include=["documents", "metadatas"])
 
-    docs = all_data.get("documents", []) or []
-    metadatas = all_data.get("metadatas", []) or []
-    ids = all_data.get("ids", []) or []
+        docs = all_data.get("documents", []) or []
+        metadatas = all_data.get("metadatas", []) or []
+        ids = all_data.get("ids", []) or []
 
-    _corpus = []
-    tokenized_corpus: list[list[str]] = []
+        _corpus = []
+        tokenized_corpus: list[list[str]] = []
 
-    for doc, meta, doc_id in zip(docs, metadatas, ids):
-        _corpus.append({
-            "chunk_id": doc_id,
-            "source": meta.get("filename", ""),
-            "content": doc,
-        })
-        tokenized_corpus.append(_tokenize(doc))
+        for doc, meta, doc_id in zip(docs, metadatas, ids):
+            _corpus.append({
+                "chunk_id": doc_id,
+                "source": meta.get("filename", ""),
+                "content": doc,
+                "session_id": meta.get("session_id", ""),
+            })
+            tokenized_corpus.append(_tokenize(doc))
 
-    if tokenized_corpus:
-        _bm25 = BM25Okapi(tokenized_corpus)
-    else:
-        _bm25 = None
+        if tokenized_corpus:
+            _bm25 = BM25Okapi(tokenized_corpus)
+        else:
+            _bm25 = None
 
-    _is_dirty = False
-    logger.info("BM25 index rebuilt with %d documents", len(_corpus))
+        _is_dirty = False
+        logger.info("BM25 index rebuilt with %d documents", len(_corpus))
 
 
 def mark_dirty() -> None:
@@ -53,7 +59,7 @@ def mark_dirty() -> None:
     logger.debug("BM25 index marked dirty — will rebuild on next query")
 
 
-def search(query: str, top_k: int = 10) -> list[dict]:
+def search(query: str, top_k: int = 10, session_id: str = "") -> list[dict]:
     global _is_dirty
 
     if _is_dirty or _bm25 is None:
@@ -70,13 +76,19 @@ def search(query: str, top_k: int = 10) -> list[dict]:
     scored.sort(key=lambda x: x[0], reverse=True)
 
     results = []
-    for score, chunk in scored[:top_k]:
+    for score, chunk in scored:
+        if session_id and chunk.get("session_id") != session_id:
+            continue
         results.append({
             "chunk_id": chunk["chunk_id"],
             "source": chunk["source"],
             "content": chunk["content"],
             "score": float(score),
         })
+        if len(results) >= top_k:
+            break
 
-    logger.info("BM25 search returned %d results", len(results))
+    logger.info(
+        "BM25 search returned %d results (session=%s)", len(results), session_id
+    )
     return results

@@ -11,23 +11,28 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "documents"
 
+_client = None
+_collection = None
+
 
 def get_chroma_collection():
-    client = chromadb.PersistentClient(
-        path=settings.CHROMA_PATH,
-        settings=ChromaSettings(anonymized_telemetry=False),
-    )
-    collection = client.get_or_create_collection(name=COLLECTION_NAME)
-    return collection
+    global _client, _collection
+    if _client is None:
+        _client = chromadb.PersistentClient(
+            path=settings.CHROMA_PATH,
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
+        _collection = _client.get_or_create_collection(name=COLLECTION_NAME)
+    return _collection
 
 
 def store_chunks(
     chunks: list[str],
     embeddings: list[list[float]],
     source_filename: str,
+    session_id: str = "",
 ) -> int:
     from app.services.bm25_service import mark_dirty
-
     collection = get_chroma_collection()
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -37,6 +42,7 @@ def store_chunks(
             "chunk_index": idx,
             "filename": source_filename,
             "uploaded_at": timestamp,
+            "session_id": session_id,
         }
         for idx in range(len(chunks))
     ]
@@ -51,33 +57,41 @@ def store_chunks(
     mark_dirty()
 
     logger.info(
-        "Inserted %d chunks into Chroma (source: %s)", len(chunks), source_filename
+        "Inserted %d chunks into Chroma (session=%s, source=%s)",
+        len(chunks), session_id, source_filename,
     )
     return len(chunks)
 
 
-def delete_document_chunks(filename: str) -> int:
+def delete_document_chunks(filename: str, session_id: str = "") -> int:
     from app.services.bm25_service import mark_dirty
-
     collection = get_chroma_collection()
-    results = collection.get(where={"filename": filename})
+
+    filters: list[dict] = [{"filename": filename}]
+    if session_id:
+        filters.append({"session_id": session_id})
+    where_clause = {"$and": filters} if len(filters) > 1 else filters[0]
+
+    results = collection.get(where=where_clause)
     ids = results.get("ids", [])
     if not ids:
-        logger.warning("No chunks found for document: %s", filename)
+        logger.warning("No chunks found for document: %s (session=%s)", filename, session_id)
         return 0
 
     collection.delete(ids=ids)
     mark_dirty()
-    logger.info("Deleted %d chunks for document: %s", len(ids), filename)
+    logger.info("Deleted %d chunks for document: %s (session=%s)", len(ids), filename, session_id)
     return len(ids)
 
 
-def list_documents() -> list[dict]:
+def list_documents(session_id: str = "") -> list[dict]:
     collection = get_chroma_collection()
-    all_data = collection.get(include=["metadatas"])
+    where_clause: dict | None = None
+    if session_id:
+        where_clause = {"session_id": session_id}
+    all_data = collection.get(include=["metadatas"], where=where_clause)
 
     metadatas = all_data.get("metadatas", [])
-    ids = all_data.get("ids", [])
 
     if not metadatas:
         return []

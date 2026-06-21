@@ -1,4 +1,4 @@
-# RAG Application - Phase 5
+# RAG Application
 
 PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB + BM25 → Hybrid Retrieval → Cross-Encoder Reranking → Answer Generation
 
@@ -6,7 +6,7 @@ PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB + BM25 �
 
 - Python 3.11+
 - FastAPI
-- ChromaDB
+- ChromaDB (persistent, file-based — no external database required)
 - Sentence Transformers
 - PyPDF
 - Hugging Face Inference API (Meta Llama)
@@ -16,9 +16,26 @@ PDF Upload → Text Extraction → Chunking → Embedding → ChromaDB + BM25 �
 
 ## Setup
 
+### Local
+
 ```bash
 pip install -r requirements.txt
 ```
+
+Copy the environment file and add your Hugging Face API key:
+
+```bash
+cp .env.example .env
+# Edit .env and set HF_API_KEY=
+```
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+The first startup will download embedding and reranker models (~500 MB total). Subsequent starts use the cached models.
 
 ## Configuration
 
@@ -28,18 +45,17 @@ Copy `.env.example` to `.env` and fill in your values:
 cp .env.example .env
 ```
 
-| Variable            | Default                                        | Description                           |
-| ------------------- | ---------------------------------------------- | ------------------------------------- |
-| `CHROMA_PATH`       | `./chroma_db`                                   | ChromaDB storage path                 |
-| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2`        | Embedding model name                  |
-| `TOP_K_RESULTS`     | `5`                                             | Number of chunks to retrieve (legacy) |
-| `MAX_CONTEXT_CHARS` | `3000`                                          | Max context characters sent to LLM    |
-| `VECTOR_TOP_K`      | `10`                                            | Top candidates from dense vector search |
-| `BM25_TOP_K`        | `10`                                            | Top candidates from BM25 sparse search |
-| `RERANK_TOP_K`      | `5`                                             | Final top chunks after cross-encoder reranking |
-| `HF_API_KEY`        | —                                              | **Required.** Hugging Face API token  |
-| `LLM_MODEL`         | `meta-llama/Llama-3.1-8B-Instruct`             | Hugging Face model ID                 |
-| `LLM_TIMEOUT`       | `60`                                            | LLM API timeout in seconds            |
+| Variable                  | Default                                        | Required | Description                              |
+| ------------------------- | ---------------------------------------------- | -------- | ---------------------------------------- |
+| `HF_API_KEY`              | —                                              | Yes      | Hugging Face API token (get one at https://huggingface.co/settings/tokens) |
+| `LLM_MODEL`               | `meta-llama/Llama-3.1-8B-Instruct`             | No       | Hugging Face model ID for inference      |
+| `CHROMA_PATH`             | `{project}/chroma_db`                          | No       | ChromaDB persistent storage path         |
+| `UPLOAD_DIR`              | `{project}/uploads`                            | No       | PDF upload directory                     |
+| `MAX_FILE_SIZE_MB`        | `20`                                           | No       | Maximum PDF upload size in MB            |
+| `VECTOR_TOP_K`            | `10`                                           | No       | Top candidates from dense vector search  |
+| `BM25_TOP_K`              | `10`                                           | No       | Top candidates from BM25 sparse search   |
+| `RERANK_TOP_K`            | `5`                                            | No       | Final top chunks after cross-encoder reranking |
+| `ALLOWED_ORIGINS`         | `http://localhost:8000`                        | No       | Comma-separated CORS origins             |
 
 ### Getting a Hugging Face API Key
 
@@ -49,11 +65,53 @@ cp .env.example .env
 
 ## Run
 
+### Local
+
 ```bash
 uvicorn app.main:app --reload
 ```
 
+### Docker
+
+```bash
+docker compose up --build
+```
+
 Server starts at `http://localhost:8000`.
+
+## Deployment
+
+This application is designed for free-tier hosting platforms. No paid cloud services, external databases, or authentication services are required.
+
+### Free Hosting Options
+
+| Platform       | Notes |
+|---------------|-------|
+| **Railway**   | Use Dockerfile. Set `HF_API_KEY` and `ALLOWED_ORIGINS` as environment variables. Add a health check on `/health`. |
+| **Render**    | Use Docker runtime. Add `HF_API_KEY` and `ALLOWED_ORIGINS` in the Dashboard. Models will download on first deploy (~5 min). |
+| **Hugging Face Spaces** | Use Docker runtime. Set secrets via Space settings. Ensure persistent storage for `chroma_db`. |
+
+### Storage Behavior
+
+- **ChromaDB** (`chroma_db/`): File-based vector database. Persisted locally or via Docker volume. On ephemeral platforms without persistent volumes, data will be lost on restart.
+- **Uploads** (`uploads/`): Uploaded PDF files. Same persistence behavior as ChromaDB.
+- **Model cache** (`~/.cache/huggingface`): Downloaded models cached to avoid re-download. In Docker, this is stored in a named volume (`huggingface_cache`).
+
+### Environment Variables in Production
+
+Set these as environment variables on your hosting platform (not in `.env`):
+
+| Variable              | Required | Description |
+|----------------------|----------|-------------|
+| `HF_API_KEY`         | Yes      | Hugging Face API token |
+| `ALLOWED_ORIGINS`    | Yes      | Your deployment domain(s) for CORS |
+
+### Notes
+
+- Models (embedding + reranker) download on first startup — expect ~500 MB and 2–5 minutes
+- HF Inference API is free-tier friendly but has rate limits
+- Session isolation uses cookies — ensure your domain uses a consistent hostname so sessions persist
+- The health endpoint (`GET /health`) is available for platform uptime monitoring
 
 ## RAG Flow
 
@@ -295,6 +353,45 @@ The BM25 index is built automatically from ChromaDB on first query. It is kept s
 - **On upload:** new chunks are added to ChromaDB, and the BM25 index is marked dirty (rebuilds on next query)
 - **On delete:** chunks are removed from ChromaDB, and the BM25 index is marked dirty
 
+---
+
+## Phase 6 — Security & Session Isolation
+
+### Session-Based Document Isolation
+
+Every visitor receives a unique `session_id` stored in a secure HTTP-only cookie. All uploaded documents and their chunks are tagged with this `session_id`. Retrieval, listing, and deletion operations are scoped to the current session — users can never access another session's documents.
+
+- `session_id` is auto-generated as a UUID v4 on first visit
+- Stored in `session_id` cookie (HTTP-only, SameSite=Lax, 1-year expiry)
+- All ChromaDB metadata includes `session_id`
+- Vector search uses ChromaDB's `where` filter on `session_id`
+- BM25 filters results by `session_id` after scoring
+
+### Upload Limits
+
+- **MAX_FILE_SIZE_MB** — rejects files larger than this limit with HTTP 413
+- **MAX_DOCUMENTS_PER_SESSION** — prevents unlimited storage abuse
+
+### Rate Limiting
+
+IP-based sliding window rate limiting protects:
+
+| Endpoint              | Default Limit      | HTTP Code |
+| --------------------- | ------------------ | --------- |
+| `POST /upload`        | 5 per minute       | 429       |
+| `POST /ask`           | 20 per minute      | 429       |
+| `POST /ask/stream`    | 20 per minute      | 429       |
+
+Rate limit violations are logged server-side.
+
+### CORS Security
+
+`ALLOWED_ORIGINS` is loaded from the environment (comma-separated). The default `*` has been removed. Configure it for your deployment domain.
+
+### Health Check
+
+`GET /health` returns `{"status": "healthy"}`. Used by deployment platforms (Railway, Render, etc.) for uptime monitoring.
+
 ## Project Structure
 
 ```
@@ -315,7 +412,9 @@ rag_app/
 │   │   ├── reranker_service.py           # Cross-encoder reranking
 │   │   ├── retrieval_service.py
 │   │   ├── llm_service.py
-│   │   └── rag_service.py
+│   │   ├── rag_service.py
+│   │   ├── session_service.py            # Session ID management
+│   │   └── rate_limiter.py               # IP-based rate limiting
 │   ├── core/
 │   │   └── config.py
 │   ├── models/
@@ -323,6 +422,9 @@ rag_app/
 │   └── main.py
 ├── uploads/
 ├── chroma_db/
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
 ├── requirements.txt
 ├── .env.example
 └── README.md

@@ -5,13 +5,13 @@ from PyPDF2 import PdfReader
 
 logger = logging.getLogger(__name__)
 
-
-def _safe_filename(filename: str) -> str:
-    return Path(filename).name
+PDF_MAGIC_BYTES = b"%PDF"
 
 
 def save_uploaded_file(upload_dir: Path, filename: str, content: bytes) -> Path:
-    safe_name = _safe_filename(filename)
+    safe_name = Path(filename).name
+    if not content.startswith(PDF_MAGIC_BYTES):
+        raise ValueError("File does not appear to be a valid PDF")
     file_path = upload_dir / safe_name
     file_path.write_bytes(content)
     logger.info("Saved uploaded file: %s (%d bytes)", safe_name, len(content))

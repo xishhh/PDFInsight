@@ -47,13 +47,20 @@ def _build_messages(context: str, question: str) -> list[dict]:
     ]
 
 
+def _should_retry(e: Exception, attempt: int, max_retries: int) -> tuple[bool, float]:
+    error_str = str(e).lower()
+    if "rate limit" in error_str or "429" in error_str:
+        return True, 2.0 ** attempt
+    if attempt <= max_retries:
+        return True, 1.0
+    return False, 0.0
+
+
 def generate_answer(context: str, question: str) -> str:
     client = get_llm_client()
     logger.info("Sending prompt to LLM (%s)", settings.LLM_MODEL)
 
     max_retries = 2
-    last_error: Exception | None = None
-
     for attempt in range(1, max_retries + 2):
         try:
             response = client.chat_completion(
@@ -72,30 +79,17 @@ def generate_answer(context: str, question: str) -> str:
             return answer.strip()
 
         except Exception as e:
-            last_error = e
-            error_str = str(e).lower()
+            should_retry, wait = _should_retry(e, attempt, max_retries)
+            if not should_retry:
+                logger.error("LLM call failed after all retries: %s", e)
+                raise
+            logger.warning(
+                "LLM call failed (attempt %d/%d, retrying in %.1fs): %s",
+                attempt, max_retries + 1, wait, e,
+            )
+            time.sleep(wait)
 
-            if "rate limit" in error_str or "429" in error_str:
-                wait = 2 ** attempt
-                logger.warning(
-                    "Rate limited. Retrying in %ds (attempt %d/%d)",
-                    wait, attempt, max_retries + 1,
-                )
-                time.sleep(wait)
-                continue
-
-            if attempt <= max_retries:
-                logger.warning(
-                    "LLM call failed (attempt %d/%d): %s",
-                    attempt, max_retries + 1, e,
-                )
-                time.sleep(1)
-                continue
-
-            logger.error("LLM call failed after all retries: %s", e)
-            raise
-
-    raise last_error
+    raise RuntimeError("Unreachable — retry loop exhausted")
 
 
 def generate_answer_stream(context: str, question: str) -> Generator[str, None, None]:
@@ -103,8 +97,6 @@ def generate_answer_stream(context: str, question: str) -> Generator[str, None, 
     logger.info("Starting streaming LLM call (%s)", settings.LLM_MODEL)
 
     max_retries = 2
-    last_error: Exception | None = None
-
     for attempt in range(1, max_retries + 2):
         try:
             stream = client.chat_completion(
@@ -127,27 +119,14 @@ def generate_answer_stream(context: str, question: str) -> Generator[str, None, 
             return
 
         except Exception as e:
-            last_error = e
-            error_str = str(e).lower()
+            should_retry, wait = _should_retry(e, attempt, max_retries)
+            if not should_retry:
+                logger.error("Streaming LLM call failed after all retries: %s", e)
+                raise
+            logger.warning(
+                "Streaming LLM call failed (attempt %d/%d, retrying in %.1fs): %s",
+                attempt, max_retries + 1, wait, e,
+            )
+            time.sleep(wait)
 
-            if "rate limit" in error_str or "429" in error_str:
-                wait = 2 ** attempt
-                logger.warning(
-                    "Rate limited. Retrying in %ds (attempt %d/%d)",
-                    wait, attempt, max_retries + 1,
-                )
-                time.sleep(wait)
-                continue
-
-            if attempt <= max_retries:
-                logger.warning(
-                    "Streaming LLM call failed (attempt %d/%d): %s",
-                    attempt, max_retries + 1, e,
-                )
-                time.sleep(1)
-                continue
-
-            logger.error("Streaming LLM call failed after all retries: %s", e)
-            raise
-
-    raise last_error
+    raise RuntimeError("Unreachable — retry loop exhausted")
