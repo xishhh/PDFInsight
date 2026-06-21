@@ -1,47 +1,51 @@
 import json
 import logging
+import time
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from app.api.query import _validate_question
 from app.models.schemas import AskRequest, AskResponse, RetrievalStats, SourceCitation
+from app.core.config import settings
 from app.services.rag_service import answer_question, answer_question_stream
+from app.services.rate_limiter import check_question_rate
+from app.services.session_service import get_session_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _build_retrieval_stats(stats: dict) -> RetrievalStats | None:
+def _build_retrieval_stats(stats: dict | None) -> RetrievalStats | None:
     if not stats:
         return None
     return RetrievalStats(
         vector_candidates=stats.get("vector_candidates", 0),
         bm25_candidates=stats.get("bm25_candidates", 0),
         reranked_chunks=stats.get("reranked_chunks", 0),
+        retrieval_latency_ms=round(stats.get("total_retrieval_time", 0) * 1000, 1),
+        rerank_latency_ms=round(stats.get("rerank_time", 0) * 1000, 1),
+        llm_latency_ms=stats.get("llm_time_ms"),
     )
 
 
 @router.post("/ask", response_model=AskResponse)
-async def ask_question(body: AskRequest):
-    question = body.question.strip()
-
-    if not question:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Question cannot be empty",
-        )
-
-    if len(question) <= 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Question must be longer than 3 characters",
-        )
-
-    logger.info("Received /ask request: %s", question)
+async def ask_question(
+    request: Request,
+    body: AskRequest,
+    session_id: str = Depends(get_session_id),
+):
+    check_question_rate(request, settings.QUESTION_RATE_LIMIT)
+    question = _validate_question(body.question)
+    logger.info("Received /ask request: %s (session=%s)", question, session_id)
 
     try:
-        answer, sources_used, sources, stats = answer_question(question)
+        _llm_start = time.perf_counter()
+        answer, sources_used, sources, stats = answer_question(question, session_id=session_id)
+        _llm_elapsed = round((time.perf_counter() - _llm_start) * 1000, 1)
+        if stats:
+            stats["llm_time_ms"] = _llm_elapsed
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         raise HTTPException(
@@ -65,25 +69,17 @@ async def ask_question(body: AskRequest):
 
 
 @router.post("/ask/stream")
-async def ask_question_stream(body: AskRequest):
-    question = body.question.strip()
-
-    if not question:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Question cannot be empty",
-        )
-
-    if len(question) <= 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Question must be longer than 3 characters",
-        )
-
-    logger.info("Received /ask/stream request: %s", question)
+async def ask_question_stream(
+    request: Request,
+    body: AskRequest,
+    session_id: str = Depends(get_session_id),
+):
+    check_question_rate(request, settings.QUESTION_RATE_LIMIT)
+    question = _validate_question(body.question)
+    logger.info("Received /ask/stream request: %s (session=%s)", question, session_id)
 
     try:
-        stream, sources, stats = answer_question_stream(question)
+        stream, sources, stats = answer_question_stream(question, session_id=session_id)
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         raise HTTPException(
@@ -102,10 +98,10 @@ async def ask_question_stream(body: AskRequest):
     async def event_stream():
         initial = {
             "sources": sources,
-            "tokens": [],
         }
         if retrieval_stats:
             initial["retrieval_stats"] = retrieval_stats.model_dump()
+        initial["tokens"] = []
         yield json.dumps(initial, separators=(",", ":"))[:-2]
 
         for token in stream:

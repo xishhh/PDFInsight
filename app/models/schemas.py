@@ -8,7 +8,7 @@ class UploadResponse(BaseModel):
     embeddings_created: int
 
 
-class QueryRequest(BaseModel):
+class QuestionRequest(BaseModel):
     question: str
 
 
@@ -24,8 +24,7 @@ class QueryResponse(BaseModel):
     chunks: list[ChunkResult]
 
 
-class AskRequest(BaseModel):
-    question: str
+AskRequest = QuestionRequest
 
 
 class SourceCitation(BaseModel):
@@ -37,6 +36,9 @@ class RetrievalStats(BaseModel):
     vector_candidates: int
     bm25_candidates: int
     reranked_chunks: int
+    retrieval_latency_ms: float = 0.0
+    rerank_latency_ms: float = 0.0
+    llm_latency_ms: float | None = None
 
 
 class AskResponse(BaseModel):
@@ -64,5 +66,4 @@ class DeleteResponse(BaseModel):
     chunks_deleted: int
 
 
-class StreamChunk(BaseModel):
-    token: str
+
