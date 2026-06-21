@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Upload — RAG App{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <h1 class="text-xl sm:text-2xl font-bold text-gray-800 mb-5">Upload Documents</h1>
+
+    <div class="drop-zone mb-5" id="dropZone">
+        <input type="file" id="file-input" accept=".pdf" class="hidden">
+        <div class="drop-zone-icon mb-3">
+            <svg class="w-10 h-10 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+        </div>
+        <p class="text-gray-500 font-medium">Drop PDF here or click to browse</p>
+        <p class="text-gray-400 text-xs sm:text-sm mt-1">Only PDF files up to 20MB are supported</p>
+    </div>
+
+    <div class="upload-status mb-5"></div>
+
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+            <h2 class="font-semibold text-gray-700 text-sm">Uploaded Documents</h2>
+            <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-400 doc-count"></span>
+                <button class="refresh-docs-btn-header text-xs text-blue-600 hover:text-blue-700 font-medium transition">Refresh</button>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="text-left text-xs text-gray-500 uppercase tracking-wider bg-gray-50">
+                        <th class="py-3 px-3 sm:px-4">Filename</th>
+                        <th class="py-3 px-3 sm:px-4">Chunks</th>
+                        <th class="py-3 px-3 sm:px-4 hidden sm:table-cell">Uploaded At</th>
+                        <th class="py-3 px-3 sm:px-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="doc-list-body">
+                    <tr>
+                        <td colspan="4" class="text-center text-gray-400 py-8">
+                            <span class="spinner inline-block"></span>
+                            <span class="ml-2">Loading...</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>initUploadPage();</script>
+{% endblock %}
