@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from app.api.query import _validate_question
+from app.api.deps import validate_question
 from app.models.schemas import AskRequest, AskResponse, RetrievalStats, SourceCitation
 from app.core.config import settings
 from app.services.rag_service import answer_question, answer_question_stream
@@ -37,7 +37,7 @@ async def ask_question(
     session_id: str = Depends(get_session_id),
 ):
     check_question_rate(request, settings.QUESTION_RATE_LIMIT)
-    question = _validate_question(body.question)
+    question = validate_question(body.question)
     logger.info("Received /ask request: %s (session=%s)", question, session_id)
 
     try:
@@ -75,7 +75,7 @@ async def ask_question_stream(
     session_id: str = Depends(get_session_id),
 ):
     check_question_rate(request, settings.QUESTION_RATE_LIMIT)
-    question = _validate_question(body.question)
+    question = validate_question(body.question)
     logger.info("Received /ask/stream request: %s (session=%s)", question, session_id)
 
     try:

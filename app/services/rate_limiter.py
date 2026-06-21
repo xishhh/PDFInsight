@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from collections import defaultdict
 
@@ -10,24 +11,26 @@ logger = logging.getLogger(__name__)
 class RateLimiter:
     def __init__(self) -> None:
         self._buckets: dict[str, list[float]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> None:
         now = time.monotonic()
         cutoff = now - window_seconds
-        timestamps = self._buckets[key]
-        timestamps[:] = [t for t in timestamps if t > cutoff]
+        with self._lock:
+            timestamps = self._buckets[key]
+            timestamps[:] = [t for t in timestamps if t > cutoff]
 
-        if len(timestamps) >= max_requests:
-            logger.warning(
-                "Rate limit exceeded for key=%s (%d/%d per %ds)",
-                key, len(timestamps), max_requests, window_seconds,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
-            )
+            if len(timestamps) >= max_requests:
+                logger.warning(
+                    "Rate limit exceeded for key=%s (%d/%d per %ds)",
+                    key, len(timestamps), max_requests, window_seconds,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many requests. Please try again later.",
+                )
 
-        timestamps.append(now)
+            timestamps.append(now)
 
 
 _upload_limiter = RateLimiter()

@@ -20,5 +20,5 @@ def get_session_id(request: Request, response: Response) -> str:
             httponly=True,
             samesite="lax",
         )
-        logger.info("Created new session: %s", session_id)
+        logger.info("New session started: %s", session_id)
     return session_id

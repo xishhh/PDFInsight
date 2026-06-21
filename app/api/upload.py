@@ -10,25 +10,13 @@ from app.services.chunking_service import chunk_text
 from app.services.embedding_service import generate_embeddings
 from app.services.rate_limiter import check_upload_rate
 from app.services.session_service import get_session_id
-from app.services.vector_store_service import store_chunks, get_chroma_collection
+from app.services.vector_store_service import store_chunks, list_documents
 
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 
 router = APIRouter()
-
-
-def _count_session_documents(session_id: str) -> int:
-    collection = get_chroma_collection()
-    all_data = collection.get(include=["metadatas"], where={"session_id": session_id})
-    metadatas = all_data.get("metadatas", []) or []
-    seen_filenames: set[str] = set()
-    for meta in metadatas:
-        fname = meta.get("filename", "")
-        if fname:
-            seen_filenames.add(fname)
-    return len(seen_filenames)
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -60,7 +48,7 @@ async def upload_pdf(
             detail=f"File exceeds maximum size of {settings.MAX_FILE_SIZE_MB}MB",
         )
 
-    current_count = _count_session_documents(session_id)
+    current_count = len(list_documents(session_id=session_id))
     if current_count >= settings.MAX_DOCUMENTS_PER_SESSION:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

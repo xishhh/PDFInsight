@@ -4,8 +4,6 @@ import threading
 
 from rank_bm25 import BM25Okapi
 
-from app.services.vector_store_service import get_chroma_collection
-
 logger = logging.getLogger(__name__)
 
 _bm25: BM25Okapi | None = None
@@ -25,6 +23,7 @@ def _rebuild_index() -> None:
             return
         logger.info("Rebuilding BM25 index from ChromaDB...")
 
+        from app.services.vector_store_service import get_chroma_collection
         collection = get_chroma_collection()
         all_data = collection.get(include=["documents", "metadatas"])
 

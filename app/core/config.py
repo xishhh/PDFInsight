@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     CLEAR_CHROMA_ON_START: bool = False
 
     MAX_FILE_SIZE_MB: int = 20
-    MAX_DOCUMENTS_PER_SESSION: int = 10
+    MAX_DOCUMENTS_PER_SESSION: int = 5
     UPLOAD_RATE_LIMIT: int = 5
     QUESTION_RATE_LIMIT: int = 20
     ALLOWED_ORIGINS: str = "http://localhost:8000"

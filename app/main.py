@@ -68,7 +68,8 @@ async def lifespan(app: FastAPI):
         )
 
     # -- Storage directories --
-    Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Upload directory ready: %s", settings.UPLOAD_DIR)
 
     # -- Clear Chroma on start if configured --

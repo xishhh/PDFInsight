@@ -10,6 +10,18 @@ logger = logging.getLogger(__name__)
 NOT_FOUND_MESSAGE = "I could not find the answer in the provided document."
 
 
+def _retrieve_and_prepare(
+    question: str, session_id: str = ""
+) -> tuple[list[dict], str, list[dict], dict]:
+    chunks, stats = hybrid_retrieve(question, session_id=session_id)
+    if not chunks:
+        return [], "", [], stats
+    deduped = _deduplicate_chunks(chunks)
+    context = build_context(deduped)
+    sources = _extract_sources(deduped)
+    return deduped, context, sources, stats
+
+
 def _deduplicate_chunks(chunks: list[dict], threshold: float = 0.8) -> list[dict]:
     if len(chunks) <= 1:
         return chunks
@@ -67,16 +79,13 @@ def _extract_sources(chunks: list[dict]) -> list[dict]:
 
 
 def answer_question(question: str, session_id: str = "") -> tuple[str, int, list[dict], dict]:
-    logger.info("Hybrid retrieval for question: %s (session=%s)", question, session_id)
-    chunks, stats = hybrid_retrieve(question, session_id=session_id)
+    logger.info("Answering question: %s (session=%s)", question, session_id)
+    chunks, context, sources, stats = _retrieve_and_prepare(question, session_id=session_id)
 
     if not chunks:
         logger.info("No chunks retrieved — returning default message")
         return NOT_FOUND_MESSAGE, 0, [], stats
 
-    deduped = _deduplicate_chunks(chunks)
-    context = build_context(deduped)
-    sources = _extract_sources(deduped)
     sources_used = len(sources)
     logger.info("Context built (%d chars, %d sources, session=%s)", len(context), sources_used, session_id)
 
@@ -85,8 +94,8 @@ def answer_question(question: str, session_id: str = "") -> tuple[str, int, list
 
 
 def answer_question_stream(question: str, session_id: str = "") -> tuple[Generator[str, None, None], list[dict], dict]:
-    logger.info("Hybrid retrieval for streaming question: %s (session=%s)", question, session_id)
-    chunks, stats = hybrid_retrieve(question, session_id=session_id)
+    logger.info("Streaming answer for question: %s (session=%s)", question, session_id)
+    chunks, context, sources, stats = _retrieve_and_prepare(question, session_id=session_id)
 
     if not chunks:
         logger.info("No chunks retrieved — returning default message as stream")
@@ -96,9 +105,6 @@ def answer_question_stream(question: str, session_id: str = "") -> tuple[Generat
 
         return empty_gen(), [], stats
 
-    deduped = _deduplicate_chunks(chunks)
-    context = build_context(deduped)
-    sources = _extract_sources(deduped)
     logger.info("Streaming context built (%d chars, %d sources, session=%s)", len(context), len(sources), session_id)
 
     stream = generate_answer_stream(context, question)
