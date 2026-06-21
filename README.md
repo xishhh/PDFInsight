@@ -81,34 +81,64 @@ Server starts at `http://localhost:8000`.
 
 ## Deployment
 
-This application is designed for free-tier hosting platforms. No paid cloud services, external databases, or authentication services are required.
+This application is designed for free-tier hosting. No paid cloud services, external databases, or authentication services are required.
 
-### Free Hosting Options
+### Recommended: Hugging Face Spaces (Free)
 
-| Platform       | Notes |
-|---------------|-------|
-| **Railway**   | Use Dockerfile. Set `HF_API_KEY` and `ALLOWED_ORIGINS` as environment variables. Add a health check on `/health`. |
-| **Render**    | Use Docker runtime. Add `HF_API_KEY` and `ALLOWED_ORIGINS` in the Dashboard. Models will download on first deploy (~5 min). |
-| **Hugging Face Spaces** | Use Docker runtime. Set secrets via Space settings. Ensure persistent storage for `chroma_db`. |
+[Hugging Face Spaces](https://huggingface.co/spaces) offers the best free-tier fit — 16GB RAM, 2 vCPU, and Docker support, plus you're already using HF for the LLM API.
+
+#### One-click deploy
+
+[![Deploy to HF Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/deploy-to-spaces-lg.svg)](https://huggingface.co/login?return_to=%2Fnew-space%3Ftemplate%3Dstatic%26sdk%3Ddocker%26name%3Dbasic-rag)
+
+Or create manually:
+
+1. Go to [huggingface.co/new-space](https://huggingface.co/new-space)
+2. Set **Space Name** (e.g. `basic-rag`)
+3. Set **SDK** → **Docker**
+4. Set **Space Hardware** → **CPU basic** (free)
+5. Connect your GitHub repo (or upload the `rag_app/` folder)
+6. In **Settings → Repository Secrets**, add:
+   - `HF_API_KEY` — your HF token
+   - `ALLOWED_ORIGINS` — `https://<your-space>.hf.space`
+   - `CLEAR_CHROMA_ON_START` → `0`
+7. The Space will build and start. First boot downloads ~500MB of models (~2–5 min).
+
+> **Storage:** HF Spaces free tier disk is *ephemeral* — data is lost on restart. To persist ChromaDB and uploads across restarts, attach a [Storage Bucket](https://huggingface.co/docs/hub/en/spaces-storage) (free tier includes quota) mounted at `/data`, then set:
+> - `CHROMA_PATH=/data/chroma_db`
+> - `UPLOAD_DIR=/data/uploads`
+
+### Other Options
+
+| Platform | Notes |
+|----------|-------|
+| **Render** | Free tier (512MB RAM, spins down after 15min). **No persistent disk** on free tier — models re-download on every restart. Suitable only for evaluation. |
+| **Railway** | No free tier — $5/month minimum (Hobby plan). Includes 5GB persistent volume. |
+| **Oracle Cloud** (Always Free) | 4 ARM cores, 24GB RAM, 200GB persistent disk. Most powerful free option, but requires manual Docker setup on a VM. |
 
 ### Storage Behavior
 
-- **ChromaDB** (`chroma_db/`): File-based vector database. Persisted locally or via Docker volume. On ephemeral platforms without persistent volumes, data will be lost on restart.
-- **Uploads** (`uploads/`): Uploaded PDF files. Same persistence behavior as ChromaDB.
-- **Model cache** (`~/.cache/huggingface`): Downloaded models cached to avoid re-download. In Docker, this is stored in a named volume (`huggingface_cache`).
+| Path | Content | Persistence |
+|------|---------|-------------|
+| `chroma_db/` | ChromaDB vector database | Lost on restart without persistent disk |
+| `uploads/` | Uploaded PDF files | Lost on restart without persistent disk |
+| `~/.cache/huggingface/` | Downloaded embedding + reranker models (~500MB) | Lost on restart without persistent disk or Docker volume |
+
+On platforms with ephemeral storage (HF Spaces free tier, Render free tier), all data is lost on restart. Use persistent volumes or Storage Buckets for production use.
 
 ### Environment Variables in Production
 
-Set these as environment variables on your hosting platform (not in `.env`):
+Set these as environment variables / secrets on your hosting platform (not in `.env`):
 
 | Variable              | Required | Description |
 |----------------------|----------|-------------|
 | `HF_API_KEY`         | Yes      | Hugging Face API token |
 | `ALLOWED_ORIGINS`    | Yes      | Your deployment domain(s) for CORS |
+| `CLEAR_CHROMA_ON_START` | No   | Set to `0` in production |
 
 ### Notes
 
-- Models (embedding + reranker) download on first startup — expect ~500 MB and 2–5 minutes
+- Models download on first startup — expect ~500 MB and 2–5 minutes
 - HF Inference API is free-tier friendly but has rate limits
 - Session isolation uses cookies — ensure your domain uses a consistent hostname so sessions persist
 - The health endpoint (`GET /health`) is available for platform uptime monitoring
