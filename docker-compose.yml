@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./uploads:/app/uploads
+      - huggingface_cache:/root/.cache/huggingface
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:
