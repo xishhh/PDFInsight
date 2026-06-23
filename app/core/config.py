@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     MAX_CONTEXT_CHARS: int = 3000
     HF_API_KEY: str = ""
     LLM_MODEL: str = "meta-llama/Llama-3.1-8B-Instruct"
-    LLM_TIMEOUT: int = 60
+    LLM_TIMEOUT: int = 30
     UPLOAD_DIR: str = str(BASE_DIR / "uploads")
     VECTOR_TOP_K: int = 10
     BM25_TOP_K: int = 10

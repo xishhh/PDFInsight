@@ -18,6 +18,7 @@ def get_session_id(request: Request, response: Response) -> str:
             value=session_id,
             max_age=SESSION_MAX_AGE,
             httponly=True,
+            secure=True,
             samesite="lax",
         )
         logger.info("New session started: %s", session_id)

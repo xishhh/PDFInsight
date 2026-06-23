@@ -395,6 +395,7 @@ function initChatPage() {
 
   if (cancelBtn) {
     cancelBtn.addEventListener("click", function () {
+      clearTimeout(_timeoutId);
       if (_abortController) {
         _abortController.abort();
         _abortController = null;
@@ -452,6 +453,10 @@ function initChatPage() {
     pendingAnswer = assistantEl;
 
     _abortController = new AbortController();
+    var _timeoutId = setTimeout(function () {
+      _abortController.abort();
+      Toast.show("LLM did not respond within 30s. Check your HF API key or try again.", "error");
+    }, 30000);
 
     fetch("/ask/stream", {
       method: "POST",
@@ -507,6 +512,7 @@ function initChatPage() {
         function pump() {
           return reader.read().then(function (result) {
             if (result.done) {
+              clearTimeout(_timeoutId);
               removeCursor();
               var endTime = performance.now();
               if (_firstTokenTime > 0) {
@@ -534,6 +540,7 @@ function initChatPage() {
         return pump();
       })
       .catch(function (err) {
+        clearTimeout(_timeoutId);
         if (err.name === "AbortError") return;
         removeCursor();
         if (pendingAnswer) {
@@ -551,6 +558,7 @@ function initChatPage() {
         Toast.show(err.message, "error");
       })
       .finally(function () {
+        clearTimeout(_timeoutId);
         _asking = false;
         _abortController = null;
         setLoading(sendBtn, false);
