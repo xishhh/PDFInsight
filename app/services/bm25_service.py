@@ -16,16 +16,19 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
 
-def _rebuild_index() -> None:
+def _rebuild_index(session_id: str = "") -> None:
     global _bm25, _corpus, _is_dirty
     with _lock:
         if not _is_dirty and _bm25 is not None:
             return
-        logger.info("Rebuilding BM25 index from ChromaDB...")
+        logger.info("Rebuilding BM25 index from ChromaDB (session=%s)...", session_id)
 
         from app.services.vector_store_service import get_chroma_collection
         collection = get_chroma_collection()
-        all_data = collection.get(include=["documents", "metadatas"])
+        query_kwargs = {"include": ["documents", "metadatas"]}
+        if session_id:
+            query_kwargs["where"] = {"session_id": session_id}
+        all_data = collection.get(**query_kwargs)
 
         docs = all_data.get("documents", []) or []
         metadatas = all_data.get("metadatas", []) or []
@@ -62,7 +65,7 @@ def search(query: str, top_k: int = 10, session_id: str = "") -> list[dict]:
     global _is_dirty
 
     if _is_dirty or _bm25 is None:
-        _rebuild_index()
+        _rebuild_index(session_id=session_id)
 
     if _bm25 is None or not _corpus:
         logger.info("BM25 index is empty — no results")

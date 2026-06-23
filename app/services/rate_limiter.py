@@ -12,11 +12,22 @@ class RateLimiter:
     def __init__(self) -> None:
         self._buckets: dict[str, list[float]] = defaultdict(list)
         self._lock = threading.Lock()
+        self._last_cleanup: float = 0.0
+
+    def _cleanup(self, window_seconds: int) -> None:
+        now = time.monotonic()
+        cutoff = now - window_seconds * 2
+        stale = [k for k, v in self._buckets.items() if not v or max(v) < cutoff]
+        for k in stale:
+            del self._buckets[k]
+        self._last_cleanup = now
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> None:
         now = time.monotonic()
         cutoff = now - window_seconds
         with self._lock:
+            if now - self._last_cleanup > window_seconds:
+                self._cleanup(window_seconds)
             timestamps = self._buckets[key]
             timestamps[:] = [t for t in timestamps if t > cutoff]
 

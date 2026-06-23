@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request, status
 
 from app.core.config import settings
 from app.models.schemas import UploadResponse
@@ -22,7 +22,6 @@ router = APIRouter()
 @router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     request: Request,
-    response: Response,
     file: UploadFile = File(...),
     session_id: str = Depends(get_session_id),
 ):

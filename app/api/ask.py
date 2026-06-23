@@ -101,11 +101,14 @@ async def ask_question_stream(
         }
         if retrieval_stats:
             initial["retrieval_stats"] = retrieval_stats.model_dump()
-        initial["tokens"] = []
-        yield json.dumps(initial, separators=(",", ":"))[:-2]
 
-        for token in stream:
-            yield "," + json.dumps(token)
+        yield json.dumps(initial, separators=(",", ":"))
+        yield ',"tokens":['
+
+        for i, token in enumerate(stream):
+            if i > 0:
+                yield ","
+            yield json.dumps(token)
 
         yield "]}"
 
