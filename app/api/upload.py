@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -62,11 +63,11 @@ async def upload_pdf(
     filename = file.filename
     file_path = None
     try:
-        file_path = save_uploaded_file(UPLOAD_DIR, filename, content)
-        text = extract_text_from_pdf(file_path)
-        chunks = chunk_text(text)
-        embeddings = generate_embeddings(chunks)
-        count = store_chunks(chunks, embeddings, filename, session_id=session_id)
+        file_path = await asyncio.to_thread(save_uploaded_file, UPLOAD_DIR, filename, content)
+        text = await asyncio.to_thread(extract_text_from_pdf, file_path)
+        chunks = await asyncio.to_thread(chunk_text, text)
+        embeddings = await asyncio.to_thread(generate_embeddings, chunks)
+        count = await asyncio.to_thread(store_chunks, chunks, embeddings, filename, session_id)
     except ValueError as e:
         if file_path and file_path.exists():
             file_path.unlink()

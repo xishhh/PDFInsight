@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -42,7 +43,9 @@ async def ask_question(
 
     try:
         _llm_start = time.perf_counter()
-        answer, sources_used, sources, stats = answer_question(question, session_id=session_id)
+        answer, sources_used, sources, stats = await asyncio.to_thread(
+            answer_question, question, session_id
+        )
         _llm_elapsed = round((time.perf_counter() - _llm_start) * 1000, 1)
         if stats:
             stats["llm_time_ms"] = _llm_elapsed

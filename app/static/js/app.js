@@ -1,6 +1,33 @@
 var $ = function (sel, ctx) { return (ctx || document).querySelector(sel); };
 var $$ = function (sel, ctx) { return Array.from((ctx || document).querySelectorAll(sel)); };
 
+// ─── Session ID (header-based, avoids cookie/proxy issues) ─────
+var SESSION_HEADER = "X-Session-ID";
+var SESSION_KEY = "rag_session_id";
+
+function getSessionId() {
+  var id = localStorage.getItem(SESSION_KEY);
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : _fallbackUUID();
+    localStorage.setItem(SESSION_KEY, id);
+  }
+  return id;
+}
+
+function _fallbackUUID() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    var r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+function sessionHeaders(extra) {
+  var h = {};
+  h[SESSION_HEADER] = getSessionId();
+  if (extra) { for (var k in extra) { h[k] = extra[k]; } }
+  return h;
+}
+
 var Toast = {
   container: null,
   init: function () {
@@ -150,6 +177,7 @@ function initUploadPage() {
     });
 
     xhr.open("POST", "/upload");
+    xhr.setRequestHeader(SESSION_HEADER, getSessionId());
     xhr.send(fd);
   }
 
@@ -181,7 +209,7 @@ function initUploadPage() {
 
   function deleteDoc(filename) {
     if (!confirm('Delete "' + filename + '" and all its chunks?')) return;
-    fetch("/documents/" + encodeURIComponent(filename), { method: "DELETE" })
+    fetch("/documents/" + encodeURIComponent(filename), { method: "DELETE", headers: sessionHeaders() })
       .then(function (r) {
         if (!r.ok) { return r.json().then(function (j) { throw new Error(j.detail || "Delete failed"); }); }
         return r.json();
@@ -194,7 +222,7 @@ function initUploadPage() {
   }
 
   function loadDocuments() {
-    fetch("/documents")
+    fetch("/documents", { headers: sessionHeaders() })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.documents || !data.documents.length) {
@@ -265,6 +293,7 @@ function initChatPage() {
 
   var _asking = false;
   var _abortController = null;
+  var _timeoutId = null;
   var pendingAnswer = null;
   var _streamStartTime = 0;
   var _firstTokenTime = 0;
@@ -395,7 +424,7 @@ function initChatPage() {
 
   if (cancelBtn) {
     cancelBtn.addEventListener("click", function () {
-      clearTimeout(_timeoutId);
+      if (_timeoutId) clearTimeout(_timeoutId);
       if (_abortController) {
         _abortController.abort();
         _abortController = null;
@@ -425,7 +454,7 @@ function initChatPage() {
     fd.append("file", file);
     var btn = $(".upload-quick-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Uploading..."; }
-    fetch("/upload", { method: "POST", body: fd })
+    fetch("/upload", { method: "POST", body: fd, headers: sessionHeaders() })
       .then(function (r) {
         if (!r.ok) { return r.json().then(function (j) { throw new Error(j.detail || "Upload failed"); }); }
         return r.json();
@@ -453,14 +482,14 @@ function initChatPage() {
     pendingAnswer = assistantEl;
 
     _abortController = new AbortController();
-    var _timeoutId = setTimeout(function () {
+    _timeoutId = setTimeout(function () {
       _abortController.abort();
       Toast.show("LLM did not respond within 30s. Check your HF API key or try again.", "error");
     }, 30000);
 
     fetch("/ask/stream", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: sessionHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ question: question }),
       signal: _abortController.signal,
     })
@@ -540,7 +569,7 @@ function initChatPage() {
         return pump();
       })
       .catch(function (err) {
-        clearTimeout(_timeoutId);
+        if (_timeoutId) clearTimeout(_timeoutId);
         if (err.name === "AbortError") return;
         removeCursor();
         if (pendingAnswer) {
@@ -558,7 +587,7 @@ function initChatPage() {
         Toast.show(err.message, "error");
       })
       .finally(function () {
-        clearTimeout(_timeoutId);
+        if (_timeoutId) clearTimeout(_timeoutId);
         _asking = false;
         _abortController = null;
         setLoading(sendBtn, false);
