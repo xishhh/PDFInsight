@@ -28,6 +28,11 @@ function sessionHeaders(extra) {
   return h;
 }
 
+function appendSessionId(url) {
+  var sep = url.indexOf("?") === -1 ? "?" : "&";
+  return url + sep + "session_id=" + encodeURIComponent(getSessionId());
+}
+
 var Toast = {
   container: null,
   init: function () {
@@ -176,7 +181,7 @@ function initUploadPage() {
       handleUploadError(null);
     });
 
-    xhr.open("POST", "/upload");
+    xhr.open("POST", appendSessionId("/upload"));
     xhr.setRequestHeader(SESSION_HEADER, getSessionId());
     xhr.send(fd);
   }
@@ -209,7 +214,7 @@ function initUploadPage() {
 
   function deleteDoc(filename) {
     if (!confirm('Delete "' + filename + '" and all its chunks?')) return;
-    fetch("/documents/" + encodeURIComponent(filename), { method: "DELETE", headers: sessionHeaders() })
+    fetch(appendSessionId("/documents/" + encodeURIComponent(filename)), { method: "DELETE", headers: sessionHeaders() })
       .then(function (r) {
         if (!r.ok) { return r.json().then(function (j) { throw new Error(j.detail || "Delete failed"); }); }
         return r.json();
@@ -222,7 +227,7 @@ function initUploadPage() {
   }
 
   function loadDocuments() {
-    fetch("/documents", { headers: sessionHeaders() })
+    fetch(appendSessionId("/documents"), { headers: sessionHeaders() })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.documents || !data.documents.length) {
@@ -454,7 +459,7 @@ function initChatPage() {
     fd.append("file", file);
     var btn = $(".upload-quick-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Uploading..."; }
-    fetch("/upload", { method: "POST", body: fd, headers: sessionHeaders() })
+    fetch(appendSessionId("/upload"), { method: "POST", body: fd, headers: sessionHeaders() })
       .then(function (r) {
         if (!r.ok) { return r.json().then(function (j) { throw new Error(j.detail || "Upload failed"); }); }
         return r.json();
@@ -487,7 +492,7 @@ function initChatPage() {
       Toast.show("LLM did not respond within 30s. Check your HF API key or try again.", "error");
     }, 30000);
 
-    fetch("/ask/stream", {
+    fetch(appendSessionId("/ask/stream"), {
       method: "POST",
       headers: sessionHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ question: question }),
