@@ -79,7 +79,7 @@ async def ask_question_stream(
     logger.info("Received /ask/stream request: %s (session=%s)", question, session_id)
 
     try:
-        stream, sources, stats = answer_question_stream(question, session_id=session_id)
+        stream, sources, stats = await answer_question_stream(question, session_id=session_id)
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         raise HTTPException(
@@ -105,10 +105,12 @@ async def ask_question_stream(
         yield json.dumps(initial, separators=(",", ":"))
         yield ',"tokens":['
 
-        for i, token in enumerate(stream):
+        i = 0
+        async for token in stream:
             if i > 0:
                 yield ","
             yield json.dumps(token)
+            i += 1
 
         yield "]}"
 
@@ -118,5 +120,6 @@ async def ask_question_stream(
         headers={
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )

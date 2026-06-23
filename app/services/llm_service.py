@@ -1,17 +1,18 @@
+import asyncio
 import logging
 import time
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 
-from huggingface_hub import InferenceClient
+from huggingface_hub import AsyncInferenceClient, InferenceClient
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client: InferenceClient | None = None
+_client: AsyncInferenceClient | None = None
 
 
-def get_llm_client() -> InferenceClient:
+def get_llm_client() -> AsyncInferenceClient:
     global _client
     if _client is None:
         if not settings.HF_API_KEY:
@@ -19,7 +20,7 @@ def get_llm_client() -> InferenceClient:
                 "HF_API_KEY is not set. Please add it to your .env file."
             )
         logger.info("Initializing Hugging Face Inference API client")
-        _client = InferenceClient(
+        _client = AsyncInferenceClient(
             model=settings.LLM_MODEL,
             token=settings.HF_API_KEY,
             timeout=settings.LLM_TIMEOUT,
@@ -57,7 +58,11 @@ def _should_retry(e: Exception, attempt: int, max_retries: int) -> tuple[bool, f
 
 
 def generate_answer(context: str, question: str) -> str:
-    client = get_llm_client()
+    client = InferenceClient(
+        model=settings.LLM_MODEL,
+        token=settings.HF_API_KEY,
+        timeout=settings.LLM_TIMEOUT,
+    )
     logger.info("Sending prompt to LLM (%s)", settings.LLM_MODEL)
 
     max_retries = 2
@@ -92,21 +97,21 @@ def generate_answer(context: str, question: str) -> str:
     raise RuntimeError("Unreachable — retry loop exhausted")
 
 
-def generate_answer_stream(context: str, question: str) -> Generator[str, None, None]:
+async def generate_answer_stream(context: str, question: str) -> AsyncGenerator[str, None]:
     client = get_llm_client()
     logger.info("Starting streaming LLM call (%s)", settings.LLM_MODEL)
 
     max_retries = 2
     for attempt in range(1, max_retries + 2):
         try:
-            stream = client.chat_completion(
+            stream = await client.chat_completion(
                 messages=_build_messages(context, question),
                 max_tokens=512,
                 temperature=0.1,
                 stream=True,
             )
 
-            for chunk in stream:
+            async for chunk in stream:
                 choices = chunk.get("choices", [])
                 if not choices:
                     continue
@@ -127,6 +132,6 @@ def generate_answer_stream(context: str, question: str) -> Generator[str, None, 
                 "Streaming LLM call failed (attempt %d/%d, retrying in %.1fs): %s",
                 attempt, max_retries + 1, wait, e,
             )
-            time.sleep(wait)
+            await asyncio.sleep(wait)
 
     raise RuntimeError("Unreachable — retry loop exhausted")

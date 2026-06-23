@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 
 from app.core.config import settings
 from app.services.hybrid_retrieval_service import hybrid_retrieve
@@ -93,14 +93,14 @@ def answer_question(question: str, session_id: str = "") -> tuple[str, int, list
     return answer, sources_used, sources, stats
 
 
-def answer_question_stream(question: str, session_id: str = "") -> tuple[Generator[str, None, None], list[dict], dict]:
+async def answer_question_stream(question: str, session_id: str = "") -> tuple[AsyncGenerator[str, None], list[dict], dict]:
     logger.info("Streaming answer for question: %s (session=%s)", question, session_id)
     chunks, context, sources, stats = _retrieve_and_prepare(question, session_id=session_id)
 
     if not chunks:
         logger.info("No chunks retrieved — returning default message as stream")
 
-        def empty_gen():
+        async def empty_gen():
             yield NOT_FOUND_MESSAGE
 
         return empty_gen(), [], stats
