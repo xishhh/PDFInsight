@@ -1,0 +1,14 @@
+name: Sync to Hugging Face Spaces
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push to Hugging Face Spaces
+        run: git push https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/makimaokie/PDFInsight main
